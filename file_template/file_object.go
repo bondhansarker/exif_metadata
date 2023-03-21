@@ -14,6 +14,10 @@ func (fileObj *FileObject) SetFileName(fileName string) {
 	fileObj.fileName = fileName
 }
 
+func (fileObj *FileObject) SetFileSize(size int64) {
+	fileObj.fileSize = size
+}
+
 func NewFileObject() *FileObject {
 	return &FileObject{}
 }
