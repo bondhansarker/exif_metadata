@@ -6,6 +6,14 @@ type FileObject struct {
 	byteData []byte
 }
 
+func (fileObj *FileObject) SetByteData(byteData []byte) {
+	fileObj.byteData = byteData
+}
+
+func (fileObj *FileObject) SetFileName(fileName string) {
+	fileObj.fileName = fileName
+}
+
 func NewFileObject() *FileObject {
 	return &FileObject{}
 }

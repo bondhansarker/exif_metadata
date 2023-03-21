@@ -3,6 +3,7 @@ module github.com/bondhansarker/exif_metadata
 go 1.18
 
 require (
+	github.com/aws/aws-lambda-go v1.38.0
 	github.com/aws/aws-sdk-go-v2 v1.17.6
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.11.58
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.30.6
@@ -20,8 +21,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.9.24 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.13.24 // indirect
 	github.com/aws/smithy-go v1.13.5 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/stretchr/testify v1.7.2 // indirect
 	golang.org/x/net v0.8.0 // indirect
 )
