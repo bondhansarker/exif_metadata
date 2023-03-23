@@ -2,13 +2,14 @@ package exif_metadata
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/barasher/go-exiftool"
-	"github.com/bondhansarker/exif_metadata/file_template"
+	timezonemapper "github.com/bradfitz/latlong"
 	"github.com/gabriel-vasile/mimetype"
 )
 
@@ -35,7 +36,7 @@ func LoadPhotoKeys() *MetaDataKeys {
 		width:            "ImageWidth",
 		height:           "ImageHeight",
 		rotation:         "Orientation",
-		createTime:       "CreateDate",
+		createTime:       "DateTimeOriginal",
 		createTimeLayout: "2006:01:02 15:04:05",
 		gpsTime:          "GPSDateTime",
 		gpsTimeLayout:    "2006:01:02 15:04:05Z",
@@ -70,43 +71,36 @@ type Location struct {
 	Longitude float64 `json:"lon"`
 }
 
-type StructuredFileMetadata struct {
-	Type       string     `json:"type"`
-	Extension  string     `json:"extension"`
-	Resolution Resolution `json:"resolution"`
-	Size       string     `json:"size"`
-	Timestamp  int64      `json:"time"`
-	Location   Location   `json:"location"`
+type DateTime struct {
+	Timestamp        time.Time `json:"timestamp"`
+	ContainsTimeZone bool      `json:"contains_time_zone"`
+}
+
+type ContentInfo struct {
+	Type      string `json:"type"`
+	Extension string `json:"extension"`
+	Size      string `json:"size"`
 }
 
 type objectMetaData struct {
 	UnstructuredFileMetadata *exiftool.FileMetadata
-	StructuredFileMetadata   *StructuredFileMetadata
+	ContentInfo              ContentInfo
 	metaDataKeys             *MetaDataKeys
 }
 
-func FetchMetaData(fileObject *file_template.FileObject) (*exiftool.FileMetadata, *StructuredFileMetadata, error) {
+func FetchMetaData(fileObject *FileObject) (*objectMetaData, error) {
 	objMetaData, err := newObjectMetaData(fileObject.FilePath())
 	if err != nil {
-		log.Fatal(err)
-		return nil, nil, err
+		fmt.Sprintf("Error for initializing object. The error: %v", err)
+		return nil, err
 	}
 	objMetaData.setInfoFields(fileObject)
-
-	if err = objMetaData.setResolution(); err != nil {
-		log.Fatal(err)
-		return nil, nil, err
+	if objMetaData.ContentInfo.Type == Photo {
+		objMetaData.metaDataKeys = LoadPhotoKeys()
+	} else {
+		objMetaData.metaDataKeys = LoadVideoKeys()
 	}
-	if err = objMetaData.setLocation(); err != nil {
-		log.Fatal(err)
-		return nil, nil, err
-	}
-	if err = objMetaData.setDateTime(); err != nil {
-		log.Fatal(err)
-		return nil, nil, err
-	}
-	unstructuredMetadata, structuredMetadata := objMetaData.UnstructuredFileMetadata, objMetaData.StructuredFileMetadata
-	return unstructuredMetadata, structuredMetadata, nil
+	return objMetaData, nil
 }
 
 func newObjectMetaData(filePath string) (*objectMetaData, error) {
@@ -115,113 +109,136 @@ func newObjectMetaData(filePath string) (*objectMetaData, error) {
 	et, err := exiftool.NewExiftool()
 
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 		return nil, err
 	}
 	defer et.Close()
 	metaData := et.ExtractMetadata(filePath)[0]
 	if metaData.Err != nil {
-		log.Fatal(err)
+		log.Println(err)
 		return nil, err
 	}
 	objMetaData.UnstructuredFileMetadata = &metaData
-	objMetaData.StructuredFileMetadata = new(StructuredFileMetadata)
 	return objMetaData, nil
 }
 
-func (objMetaData *objectMetaData) setInfoFields(fileObject *file_template.FileObject) {
+func (objMetaData *objectMetaData) setInfoFields(fileObject *FileObject) {
 	// determine the mime type based on the file
 	fileMimeType := mimetype.Detect(fileObject.FileDataAsByte())
-	contentType := getMimeType(fileMimeType.String())
+	contentType := GetMimeType(fileMimeType.String())
 
 	// stores the file size in readable format
-	objMetaData.StructuredFileMetadata.Size = fileObject.ReadableFileSize()
-	objMetaData.StructuredFileMetadata.Type = contentType
-	objMetaData.StructuredFileMetadata.Extension = fileMimeType.Extension()[1:]
-	if contentType == Photo {
-		objMetaData.metaDataKeys = LoadPhotoKeys()
-	} else {
-		objMetaData.metaDataKeys = LoadVideoKeys()
-	}
+	objMetaData.ContentInfo.Size = fileObject.ReadableFileSize()
+	objMetaData.ContentInfo.Type = contentType
+	objMetaData.ContentInfo.Extension = fileMimeType.Extension()[1:]
+
 }
 
-func (objMetaData *objectMetaData) setResolution() error {
-	unstructuredMetadata, structuredMetadata := objMetaData.UnstructuredFileMetadata, objMetaData.StructuredFileMetadata
-	width, err := unstructuredMetadata.GetInt(objMetaData.metaDataKeys.width)
+func (objMetaData *objectMetaData) Resolution() (*Resolution, error) {
+	width, err := objMetaData.UnstructuredFileMetadata.GetInt(objMetaData.metaDataKeys.width)
 	if err != nil {
-		log.Printf("Couldn't Fetch Width. Here's why: %v\n", err)
-		return err
+		PrintLog(fmt.Sprintf("couldn't fetch width. here's why: %v\n", err))
+		return nil, errors.New("width not found")
 	}
-	height, err := unstructuredMetadata.GetInt(objMetaData.metaDataKeys.height)
+	height, err := objMetaData.UnstructuredFileMetadata.GetInt(objMetaData.metaDataKeys.height)
 	if err != nil {
-		log.Printf("Couldn't Fetch Height. Here's why: %v\n", err)
-		return err
+		PrintLog(fmt.Sprintf("couldn't fetch height. here's why: %v\n", err))
+		return nil, errors.New("width not found")
 	}
 
 	// Check the content rotation
-	rotation, err := unstructuredMetadata.GetString(objMetaData.metaDataKeys.rotation)
+	rotation, err := objMetaData.UnstructuredFileMetadata.GetString(objMetaData.metaDataKeys.rotation)
 	if err != nil {
-		log.Fatal(err)
+		PrintLog(fmt.Sprintf("couldn't fetch rotation. here's why: %v\n", err))
 	}
 	if strings.Contains(rotation, "90") {
 		width, height = height, width
 	}
-	structuredMetadata.Resolution.Width = uint(width)
-	structuredMetadata.Resolution.Height = uint(height)
-	return nil
+	return &Resolution{
+		Width:  uint(width),
+		Height: uint(height),
+	}, nil
 }
 
-func (objMetaData *objectMetaData) setLocation() error {
-	unstructuredMetadata, structuredMetadata := objMetaData.UnstructuredFileMetadata, objMetaData.StructuredFileMetadata
-	gpsPositionString, err := unstructuredMetadata.GetString(objMetaData.metaDataKeys.gpsPosition)
+func (objMetaData *objectMetaData) Location() (*Location, error) {
+	gpsPositionString, err := objMetaData.UnstructuredFileMetadata.GetString(objMetaData.metaDataKeys.gpsPosition)
 	if err != nil {
-		log.Printf("Couldn't Fetch Location. Here's why: %v\n", err)
-		return err
+		PrintLog(fmt.Sprintf("couldn't fetch location. here's why: %v\n", err))
+		return nil, errors.New("location not found")
 	}
 	location, err := parseGPSLocationString(gpsPositionString)
 	if err != nil {
-		log.Fatal(err)
-		return err
+		PrintLog(fmt.Sprintf("failed to parse location. here's why: %v\n", err))
+		return nil, errors.New("invalid location")
 	}
-	structuredMetadata.Location.Latitude = location.Latitude
-	structuredMetadata.Location.Longitude = location.Longitude
-	return nil
+	return location, nil
 }
 
-func (objMetaData *objectMetaData) setDateTime() error {
-	unstructuredMetadata, structuredMetadata := objMetaData.UnstructuredFileMetadata, objMetaData.StructuredFileMetadata
-	time.Local = time.UTC // fixing the local time as UTC
-	creationTimeString, err := unstructuredMetadata.GetString(objMetaData.metaDataKeys.gpsTime)
-	layout := objMetaData.metaDataKeys.gpsTimeLayout
+func (objMetaData *objectMetaData) DateTime() (*DateTime, error) {
+	// Check GPS time first
+	containsTimeZone := false
+	timeString, layout, err := objMetaData.fetchGpsTime()
 	if err != nil {
-		layout = objMetaData.metaDataKeys.createTimeLayout
-		creationTimeString, err = unstructuredMetadata.GetString(objMetaData.metaDataKeys.createTime)
+		// Check Create time
+		timeString, layout, err = objMetaData.fetchCreateTime()
 		if err != nil {
-			log.Printf("Couldn't Fetch Time. Here's why: %v\n", err)
-			return err
+			PrintLog(fmt.Sprintf("couldn't fetch time. here's why: %v\n", err))
+			return nil, errors.New("time not found")
 		}
+		if objMetaData.ContentInfo.Type == Video {
+			containsTimeZone = true
+		}
+	} else {
+		containsTimeZone = true
 	}
-	timeFromPost, err := time.Parse(layout, creationTimeString)
+
+	parsedTime, err := time.Parse(layout, timeString)
 	if err != nil {
-		log.Fatal(err)
-		return err
+		PrintLog(fmt.Sprintf("couldn't parse time. here's why: %v\n", err))
+		return nil, errors.New("failed to parse time")
 	}
-	structuredMetadata.Timestamp = timeFromPost.Unix()
-	return nil
+
+	return &DateTime{
+		Timestamp:        parsedTime,
+		ContainsTimeZone: containsTimeZone,
+	}, nil
+}
+
+func (objMetaData *objectMetaData) fetchGpsTime() (string, string, error) {
+	timeString, err := objMetaData.UnstructuredFileMetadata.GetString(objMetaData.metaDataKeys.gpsTime)
+	if err != nil {
+		PrintLog(fmt.Sprintf("couldn't fetch gps time. here's why: %v\n", err))
+		return "", "", err
+	}
+	layout := objMetaData.metaDataKeys.gpsTimeLayout
+	return timeString, layout, err
+}
+
+func (objMetaData *objectMetaData) fetchCreateTime() (string, string, error) {
+	timeString, err := objMetaData.UnstructuredFileMetadata.GetString(objMetaData.metaDataKeys.createTime)
+	if err != nil {
+		PrintLog(fmt.Sprintf("couldn't fetch create time. here's why: %v\n", err))
+		return "", "", err
+	}
+	layout := objMetaData.metaDataKeys.createTimeLayout
+	return timeString, layout, err
 }
 
 func parseGPSLocationString(UnparsedLocation string) (*Location, error) {
 	unparsedLocations := strings.Split(UnparsedLocation, ",")
 	latitude, err := convertLocationStringToFloat(unparsedLocations[0])
 	if err != nil {
+		PrintLog(fmt.Sprintf("failed to parse location string. here's why: %v\n", err))
 		return nil, err
 	}
 	longitude, err := convertLocationStringToFloat(unparsedLocations[1])
 	if err != nil {
+		PrintLog(fmt.Sprintf("failed to parse location string. here's why: %v\n", err))
 		return nil, err
 	}
-	if latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0 {
-		return nil, errors.New("invalid latitude or longitude")
+
+	if ValidateLocation(latitude, longitude) == false {
+		return nil, errors.New("invalid location")
 	}
 	return &Location{
 		Latitude:  latitude,
@@ -252,8 +269,8 @@ func convertLocationStringToFloat(location string) (float64, error) {
 	return decimalDegrees, nil
 }
 
-// getMimeType returns the file type by splitting the content type
-func getMimeType(contentType string) string {
+// GetMimeType returns the file type by splitting the content type
+func GetMimeType(contentType string) string {
 	pieces := strings.Split(contentType, "/")
 	if len(pieces) != 2 {
 		return "unknown"
@@ -265,4 +282,26 @@ func getMimeType(contentType string) string {
 		return Video
 	}
 	return "unknown"
+}
+
+func SetTimeBasedOnTimezone(location Location, timeWithoutZone time.Time) (*time.Time, error) {
+	// Get the timezone from location
+	timezone := timezonemapper.LookupZoneName(location.Latitude, location.Longitude)
+	zoneFromLocation, err := time.LoadLocation(timezone)
+	if err != nil {
+		PrintLog(fmt.Sprintf("failed to load timezone from location. here's why: %v\n", err))
+		return &timeWithoutZone, errors.New("failed to load timezone from location")
+	}
+	timeWithZone := timeWithoutZone
+	if zoneFromLocation != nil {
+		// get offset/difference with utc in seconds based on the location timezone
+		_, differenceWithPostLocation := timeWithoutZone.In(zoneFromLocation).Zone()
+		// adding/reducing the difference with the unix time to make it pure unix
+		timeWithZone = timeWithoutZone.Add(time.Second * time.Duration(-differenceWithPostLocation))
+	}
+	return &timeWithZone, nil
+}
+
+func ValidateLocation(latitude, longitude float64) bool {
+	return latitude >= -90.0 || latitude <= 90.0 || longitude >= -180.0 || longitude <= 180.0
 }

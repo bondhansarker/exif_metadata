@@ -1,9 +1,12 @@
 package file_template
 
-import "context"
+import (
+	"context"
+
+	"github.com/bondhansarker/exif_metadata"
+)
 
 type IBucketImplementation interface {
-	DownloadObjectAsBuffer(context context.Context, objectKey string, fileRange string) (*FileObject, error)
-	DownloadObjectAsFile(context context.Context, objectKey string, fileRange string, fileName string) (*FileObject, error)
-	DownloadLargeObject(context context.Context, objectKey string, fileRange string) (*FileObject, error)
+	DownloadObjectAsBuffer(context context.Context, objectKey string, fileRange string) (*exif_metadata.FileObject, error)
+	DownloadObjectAsFile(context context.Context, objectKey string, fileRange string, fileName string) (*exif_metadata.FileObject, error)
 }

@@ -1,29 +1,29 @@
-package file_template
+package exif_metadata
 
 type FileObject struct {
-	fileName string
+	filePath string
 	fileSize int64
 	byteData []byte
-}
-
-func (fileObj *FileObject) SetByteData(byteData []byte) {
-	fileObj.byteData = byteData
-}
-
-func (fileObj *FileObject) SetFileName(fileName string) {
-	fileObj.fileName = fileName
-}
-
-func (fileObj *FileObject) SetFileSize(size int64) {
-	fileObj.fileSize = size
 }
 
 func NewFileObject() *FileObject {
 	return &FileObject{}
 }
 
+func (fileObj *FileObject) SetByteData(byteData []byte) {
+	fileObj.byteData = byteData
+}
+
+func (fileObj *FileObject) SetFilePath(filePath string) {
+	fileObj.filePath = filePath
+}
+
+func (fileObj *FileObject) SetFileSize(size int64) {
+	fileObj.fileSize = size
+}
+
 func (fileObj *FileObject) FilePath() string {
-	return fileObj.fileName
+	return fileObj.filePath
 }
 
 func (fileObj *FileObject) FileSize() int64 {

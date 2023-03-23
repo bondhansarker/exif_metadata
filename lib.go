@@ -1,6 +1,7 @@
-package file_template
+package exif_metadata
 
 import (
+	"log"
 	"math"
 	"strconv"
 )
@@ -28,4 +29,12 @@ func Round(val float64, roundOn float64, places int) (newVal float64) {
 	}
 	newVal = round / pow
 	return
+}
+
+const LOGGING = false
+
+func PrintLog(message string) {
+	if LOGGING {
+		log.Println(message)
+	}
 }
